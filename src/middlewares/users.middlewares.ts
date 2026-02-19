@@ -1,4 +1,5 @@
 import { checkSchema } from 'express-validator'
+import { JsonWebTokenError } from 'jsonwebtoken'
 import HTTP_STATUS from '~/constants/httpStatus'
 import { USERS_MESSAGES } from '~/constants/messages'
 import { ErrorWithStatus } from '~/models/Errors'
@@ -7,6 +8,7 @@ import usersService from '~/services/users.services'
 import { hashPassword } from '~/utils/cyrpto'
 import { verifyToken } from '~/utils/jwt'
 import { validate } from '~/utils/validation'
+import { capitalize } from 'lodash'
 
 export const loginValidator = checkSchema(
   {
@@ -185,5 +187,45 @@ export const accessTokenValidator = validate(
       }
     },
     ['headers']
+  )
+)
+
+export const refreshTokenValidator = validate(
+  checkSchema(
+    {
+      refresh_token: {
+        notEmpty: {
+          errorMessage: USERS_MESSAGES.REFRESH_TOKEN_IS_REQUIRED
+        },
+        custom: {
+          options: async (value: string, { req }) => {
+            try {
+              const [decoded_refresh_token, refresh_token] = await Promise.all([
+                verifyToken({ token: value }),
+                databaseService.refreshTokens.findOne({ token: value })
+              ])
+
+              if (refresh_token === null) {
+                throw new ErrorWithStatus({
+                  message: USERS_MESSAGES.USED_REFRESH_TOKEN_OR_NOT_EXIST,
+                  status: HTTP_STATUS.UNAUTHORIZED
+                })
+              }
+
+              req.decoded_refresh_token = refresh_token
+            } catch (err) {
+              if (err instanceof JsonWebTokenError)
+                throw new ErrorWithStatus({
+                  message: capitalize(err.message),
+                  status: HTTP_STATUS.UNAUTHORIZED
+                })
+              throw err
+            }
+            return true
+          }
+        }
+      }
+    },
+    ['body']
   )
 )
